@@ -1,13 +1,11 @@
+#!/usr/bin/env python
 import serial
 import binascii
 import argparse
-
-
+import paho.mqtt.client as mqtt
 from Cryptodome.Cipher import AES
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import (Cipher, algorithms, modes)
-from cryptography.exceptions import InvalidTag
 
+# DSMR parsing
 has_dsmr_parser = True
 try:
     from dsmr_parser import telegram_specifications
@@ -15,10 +13,10 @@ try:
 
     from dsmr_parser import obis_references
     import dsmr_parser.obis_name_mapping
+    print("Using DSMR parser")
 except ImportError:
     has_dsmr_parser = False
-
-
+    print("No DSMR parser found")
 
 class SmartyProxy():
     def __init__(self):
@@ -66,6 +64,10 @@ class SmartyProxy():
         self._frame_counter = b""
         self._payload = b""
         self._gcm_tag = b""
+        
+        # Use MQTT (True | False)
+        self._useMQTT = False        
+        self._client = None
 
     def main(self):
         parser = argparse.ArgumentParser()
@@ -74,9 +76,32 @@ class SmartyProxy():
         parser.add_argument('-o', '--serial-output-port', required=False, help="Output port, e.g. /dev/pts/2.")
         parser.add_argument('-a', '--aad', required=False, default="3000112233445566778899AABBCCDDEEFF", help="Additional authenticated data")
         parser.add_argument('-p', '--parse', action='store_true', required=False, default=False, help="Parse and pretty print DSMR v5 telegram")
+        parser.add_argument('-m', '--mqtt-broker', required=False, help="MQTT broker ip/dns")
+        parser.add_argument('-q', '--mqtt-port', required=False, default=1883, type=int, help="MQTT broker port")
+        parser.add_argument('-u', '--mqtt-user', required=False, help="MQTT broker username")
+        parser.add_argument('-v', '--mqtt-password', required=False, help="MQTT broker password")
+        
         self._args = parser.parse_args()
-
+        
         self.connect()
+        
+        self._useMQTT = self._args.mqtt_broker is not None
+        if self._useMQTT:
+            print("Using broker: {}".format(self._args.mqtt_broker))
+            if has_dsmr_parser:
+                try:
+                    print("Connect MQTT...")
+                    self._client = mqtt.Client("SmartMeter")
+                    self._client.username_pw_set(self._args.mqtt_user, self._args.mqtt_password)
+                    self._client.connect(self._args.mqtt_broker, self._args.mqtt_port)
+                    print("MQTT Connection successful")
+                except:
+                    print("MQTT-connection went wrong!")
+                    sys.exit()
+            else:
+                print("DSMR-parser not found. MQTT disabled!")
+                self._useMQTT = False
+            
         while True:
             self.process()
 
@@ -214,14 +239,24 @@ class SmartyProxy():
                 payload,
                 gcm_tag
             )
-            if has_dsmr_parser and self._args.parse:
-
+            if has_dsmr_parser:
                 try:
                     parser = TelegramParser(telegram_specifications.V5)
 
                     telegram = parser.parse(decryption.decode())
                     for key in telegram:
-                        print("%s: %s" % (dsmr_parser.obis_name_mapping.EN[key], telegram[key]))
+                        myname = dsmr_parser.obis_name_mapping.EN[key]
+                        try:
+                            myvalue = int(telegram[key].value)
+                            myvalue_is_int = True
+                        except:
+                            myvalue = telegram[key].value
+                            myvalue_is_int = False
+                        myunit = telegram[key].unit
+                        if self._args.parse:
+                            print("%s: %s [%s]" % (myname, myvalue, myunit))
+                        if self._useMQTT and myvalue_is_int:
+                            self._client.publish("Smartmeter/{}".format(myname), myvalue)
                 except:
                     print("ERROR: Cannot parse DSMR Telegram")
                     print(decryption)
@@ -231,8 +266,8 @@ class SmartyProxy():
 
             if self._args.serial_output_port:
                 self.write_to_serial_port(decryption)
-        except InvalidTag:
-            print("ERROR: Invalid Tag.")
+        except:
+            print("ERROR on decryption!")
 
     # Do the actual decryption (AES-GCM)
     def decrypt(self, key, additional_data, iv, payload, gcm_tag):
