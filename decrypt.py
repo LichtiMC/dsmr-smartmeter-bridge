@@ -4,6 +4,7 @@ import binascii
 import argparse
 import paho.mqtt.client as mqtt
 from Cryptodome.Cipher import AES
+from traceback import print_exc
 
 # DSMR parsing
 has_dsmr_parser = True
@@ -257,9 +258,14 @@ class SmartyProxy():
                             print("%s: %s [%s]" % (myname, myvalue, myunit))
                         if self._useMQTT and myvalue_is_int:
                             self._client.publish("Smartmeter/{}".format(myname), myvalue)
+                        elif self._useMQTT and key == "P1_MESSAGE_TIMESTAMP":
+                            self._client.publish("Smartmeter/{}".format(myname), myvalue.isoformat().encode('utf-8'))
+                        elif self._useMQTT and not myvalue_is_int:
+                            self._client.publish("Smartmeter/{}".format(myname), str(myvalue).encode('utf-8'))
                 except:
                     print("ERROR: Cannot parse DSMR Telegram")
                     print(decryption)
+                    print_exc()
             else:
                 print(decryption)
 
