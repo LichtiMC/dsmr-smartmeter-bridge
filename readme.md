@@ -1,46 +1,158 @@
-# Decrypter and proxy for Energie Steiermark "DSMR-P1" meters (Sagemcom T210-D-R)
+# DSMR Smart Meter Bridge for Sagemcom T210-D-R
 
-This piece of code acts as a "proxy" between the Luxembourgish "Smarty" meters and existing open source software that analyse DSMR telegrams. E.g. [dsmr_parser](https://github.com/ndokter/dsmr_parser).
+This project is a decrypter and Home Assistant bridge for Sagemcom T210-D-R smart meters from Energie Steiermark. It reads encrypted DSMR telegrams from the meter, decrypts them, and publishes the parsed values to MQTT so Home Assistant can pick them up automatically.
 
-I run this on a small Linux-based laptop (any Raspberry Pi xxx shall work, too) that I have connected to my Sagemcom T210-D-R meter using a serial-to-USB cable.
+This project builds on the original work by Michel Weimerskirch and the later adaptation by Matthias K. Scharrer. Thank you both for the original implementation and inspiration.
 
-## Before you start
+It works with a direct serial connection or with a socket-based virtual serial endpoint such as ser2net.
 
-* Ask Energie Steiermark for the decryption keys (GUEK and GAK/AAD). This might take a day.
-* You need a cable to connect whatever you want to use to the "P1 port" of your smart meter. Those cables are available under different names: "DSMR cable", "P1 cable"... I used a "Domotica auf Himbeer P1 Poort Kabel für Slimme Meter mit FTDI Chip 5v TTL UART Logic Level Signalen (Für ISKRA AM550/Sagemcom XS210 T210-D)" from Amazon.
-* You need to install the "cryptography" and "serial" libraries for Python. Ubuntu/Debian: ``sudo apt-get install python3-cryptography python3-serial``
-* You might need to install "socat" for the examples below. Ubuntu/Debian: ``sudo apt-get install socat``
+## What it does
 
-## Test if everything works
+- decrypts DSMR telegrams using the provider keys GUEK and GAK/AAD
+- reads from a local serial device or a socket endpoint
+- parses the decrypted values into meaningful meter readings
+- publishes values to MQTT with Home Assistant discovery support
+- can be run as a systemd service
 
-* Run the following on the command line and watch the telegrams appear on screen: ``python3 decrypt.py GUEK -a GAK`` (with "GUEK" being your decryption key and "GAK" being the Global Authentication Key)
-* If the serial-to-usb cable is not accessible under /dev/ttyUSB0, you can use the "--serial-input-port" argument to specify which path to read from.
-* Push CTRL+C to exit
+## Prerequisites
 
-## To connect your smart meter to dsmr_parser and a MQTT-broker that runs remotely
+Before you start, make sure you have:
 
-First, I do *not* use socat.
-The major change is another set of command line parameters ``--mqtt-broker``, ``--mqtt-port``, ``--mqtt-user``, ``--mqtt-password``.
-Using ``--mqtt-broker`` automatically activates publishing to that broker (``--mqtt-port`` defaults to ``1883``) **IFF** [dsmr_parser](https://github.com/ndokter/dsmr_parser) is installed and accessible.
-Depending on your setup, you might also require ``--mqtt-user``, ``--mqtt-password`` to access your broker.
+- a Sagemcom T210-D-R smart meter with access to the P1 port
+- a suitable cable or adapter for the P1 port
+- the decryption keys from Energie Steiermark: GUEK and GAK/AAD
+- a running MQTT broker if you want to publish values to Home Assistant
 
-The datagrams received are automatically published with their respective EN-names as defined in [dsmr_parser](https://github.com/ndokter/dsmr_parser), e.g.,
+## Installation
 
+### 1. Install system dependencies
+
+On Debian/Ubuntu-based systems, install the basic runtime packages:
+
+```bash
+sudo apt update
+sudo apt install python3-venv python3-pip
 ```
-P1_MESSAGE_HEADER: 50
-P1_MESSAGE_TIMESTAMP: 2022-12-10 18:09:12+00:00
-ELECTRICITY_IMPORTED_TOTAL: 15382794
-ELECTRICITY_USED_TARIFF_1: 12454752
-ELECTRICITY_USED_TARIFF_2: 2928042
-ELECTRICITY_DELIVERED_TARIFF_1: 0
-ELECTRICITY_DELIVERED_TARIFF_2: 76
-CURRENT_ELECTRICITY_USAGE: 466
-CURRENT_ELECTRICITY_DELIVERY: 0
+
+### 2. Clone the project and enter the folder
+
+```bash
+cd /opt
+git clone https://github.com/zup2/dsmr-smartmeter-bridge.git
+cd /opt/dsmr-smartmeter-bridge
 ```
+
+### 3. Create and activate a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 4. Install Python dependencies
+
+```bash
+pip install --upgrade pip
+pip install pycryptodomex paho-mqtt pyserial dsmr-parser
+```
+
+### 5. Create your local configuration
+
+Copy the example file and edit it with your values:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Example values:
+
+```env
+GUEK=YOUR_GUEK_HERE
+GAK=YOUR_GAK_HERE
+SERIAL_INPUT_PORT=/dev/ttyUSB0
+DEBUG=false
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASSWORD=
+MQTT_DISCOVERY_PREFIX=homeassistant
+MQTT_BASE_TOPIC=Smartmeter
+MQTT_DEVICE_NAME=Smartmeter
+```
+
+### 6. Run it manually once
+
+```bash
+python decrypt.py --env-file .env
+```
+
+If everything works, you should see decoded meter values printed to the console.
+
+## Supported input ports
+
+The value of SERIAL_INPUT_PORT can be one of the following:
+
+- a local serial device, for example /dev/ttyUSB0 or /dev/ttyS0
+- a socket endpoint such as socket://host:port for ser2net or similar tools
+- other pyserial-compatible URL-based serial backends, if you use them
+
+## Running as a systemd service
+
+The project includes a service file that can be enabled with:
+
+```bash
+sudo systemctl enable --now dsmr-smartmeter-bridge.service
+```
+
+The service expects the local .env file in the project directory and uses it automatically.
+
+## Home Assistant setup
+
+If MQTT is enabled in the .env file, the script publishes Home Assistant MQTT discovery messages automatically.
+
+### What should appear in Home Assistant?
+
+You should see entities under the MQTT integration, typically with names such as:
+
+- ELECTRICITY_IMPORTED_TOTAL
+- ELECTRICITY_DELIVERED_TOTAL
+- CURRENT_ELECTRICITY_USAGE
+- CURRENT_ELECTRICITY_DELIVERY
+- P1_MESSAGE_TIMESTAMP
+
+The bridge publishes the main energy and power values in a Home Assistant-friendly way:
+
+- total imported energy as an energy sensor with total_increasing
+- total delivered energy as an energy sensor with total_increasing
+- current usage and delivery as power sensors
+- timestamp as a timestamp entity when available
+
+### Recommended Home Assistant steps
+
+1. Make sure MQTT is enabled in Home Assistant.
+2. Add the MQTT integration if it is not already present.
+3. Start the bridge with MQTT configured in .env.
+4. Wait for the discovery messages to appear.
+5. Check the MQTT integration entity list and the Energy dashboard.
+
+### Values that are useful for the Energy dashboard
+
+For the Energy dashboard, the most relevant values are:
+
+- ELECTRICITY_IMPORTED_TOTAL
+- ELECTRICITY_DELIVERED_TOTAL
+
+These are the best candidates for the imported and exported energy meters.
+
+## Notes
+
+- The script prints concise summaries by default and can be run in verbose mode with --debug.
+- If you do not want to publish to MQTT, leave MQTT_BROKER empty.
+- The real .env file is local and should not be committed to Git.
 
 ## Further information
 
-* [DSMR Parser](https://github.com/ndokter/dsmr_parser), the library used by Home Assistant to read meter data
-* [DSMR Reader](http://dsmr-reader.readthedocs.io/en/latest/), stand-alone utility to log and view your energy consumption
-* [P1 Port Specification for Energie Steiermark's electricity meters](https://www.e-netze.at/downloads-data/pdf.aspx?pdf=EN_Update%20Kundenschnittstelle%20Smart%20Meter_ID3282_WEB_RGB.pdf)
-* [P1 Port Specification for Luxembourg's "Smarty" electricity meter](https://smarty.creos.net/wp-content/uploads/P1PortSpecification.pdf), the reference document for this library. It describes how the encryption on top of the DSMR standard works.
+- [DSMR Parser](https://github.com/ndokter/dsmr_parser)
+- [DSMR Reader](https://dsmr-reader.readthedocs.io/)
+- [P1 Port Specification for Energie Steiermark's electricity meters](https://www.e-netze.at/downloads-data/pdf.aspx?pdf=EN_Update%20Kundenschnittstelle%20Smart%20Meter_ID3282_WEB_RGB.pdf)
