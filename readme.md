@@ -99,9 +99,11 @@ The value of SERIAL_INPUT_PORT can be one of the following:
 
 ## Running as a systemd service
 
-The project includes a service file that can be enabled with:
+The project includes a service file at [dsmr-smartmeter-bridge.service](dsmr-smartmeter-bridge.service). To install it on the system, copy it to the systemd directory and enable it:
 
 ```bash
+sudo cp dsmr-smartmeter-bridge.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now dsmr-smartmeter-bridge.service
 ```
 

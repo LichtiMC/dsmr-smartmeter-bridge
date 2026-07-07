@@ -1,0 +1,15 @@
+[Unit]
+Description=DSMR Smart Meter Bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dsmr-smartmeter-bridge
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/dsmr-smartmeter-bridge/.env
+ExecStart=/bin/bash /opt/dsmr-smartmeter-bridge/start.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
