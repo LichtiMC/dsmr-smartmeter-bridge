@@ -111,6 +111,8 @@ class SmartMeterDecryptor():
         self._mqtt_discovery_prefix = "homeassistant"
         self._mqtt_base_topic = "Smartmeter"
         self._mqtt_device_name = "Smartmeter"
+        self._empty_reads = 0
+        self._max_empty_reads_before_reconnect = 10
 
     def main(self):
         parser = argparse.ArgumentParser()
@@ -355,13 +357,35 @@ class SmartMeterDecryptor():
 
     # Start processing incoming data
     def process(self):
+        if self._connection is None:
+            self.connect()
+            if self._connection is None:
+                return
+
         try:
             raw_data = self._connection.read(1)
-        except serial.SerialException:
+        except (serial.SerialException, OSError, ValueError):
+            self._empty_reads += 1
+            if self._empty_reads >= self._max_empty_reads_before_reconnect:
+                print("Input connection error, reconnecting...")
+                self._connection.close()
+                self._connection = None
+                self.connect()
             return
 
         if not raw_data:
+            self._empty_reads += 1
+            if self._empty_reads >= self._max_empty_reads_before_reconnect:
+                print("Input connection stalled, reconnecting...")
+                try:
+                    self._connection.close()
+                except Exception:
+                    pass
+                self._connection = None
+                self.connect()
             return
+
+        self._empty_reads = 0
 
         if self._debug and raw_data in [b'\xdb', b'\x82', b'\x00']:
             self.debug_log("RX {}".format(raw_data.hex()))
