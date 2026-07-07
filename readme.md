@@ -144,8 +144,10 @@ For the Energy dashboard, the most relevant values are:
 
 - ELECTRICITY_IMPORTED_TOTAL
 - ELECTRICITY_DELIVERED_TOTAL
+- CURRENT_ELECTRICITY_USAGE
+- CURRENT_ELECTRICITY_DELIVERY
 
-These are the best candidates for the imported and exported energy meters.
+The energy values are the best candidates for the imported and exported energy meters, while the current power values are useful for live consumption and delivery monitoring.
 
 ## Notes
 
