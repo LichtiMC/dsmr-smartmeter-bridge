@@ -21,7 +21,7 @@ Before you start, make sure you have:
 - a Sagemcom T210-D-R smart meter with access to the P1 port
 - a suitable cable or adapter for the P1 port
   - e.g. https://www.amazon.de/dp/B07JGKJ6SM (I used this one)
-    or this one: https://www.amazon.de/dp/B08FB741QM
+  - or this one: https://www.amazon.de/dp/B08FB741QM
 - the decryption keys from Energie Steiermark: GUEK and GAK/AAD
 - a running MQTT broker if you want to publish values to Home Assistant
 
