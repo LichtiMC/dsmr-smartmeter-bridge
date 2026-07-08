@@ -1,6 +1,6 @@
-# DSMR Smart Meter Bridge for Sagemcom T210-D-R
+# DSMR Smart Meter Bridge for Sagemcom T210-D-r
 
-This project is a decrypter and Home Assistant bridge for Sagemcom T210-D-R smart meters from Energie Steiermark. It reads encrypted DSMR telegrams from the meter, decrypts them, and publishes the parsed values to MQTT so Home Assistant can pick them up automatically.
+This project is a decrypter and Home Assistant bridge for Sagemcom T210-D-r smart meters from Energie Steiermark. It reads encrypted DSMR telegrams from the meter, decrypts them, and publishes the parsed values to MQTT so Home Assistant can pick them up automatically.
 
 This project builds on the original work by Michel Weimerskirch and the later adaptation by Matthias K. Scharrer. Thank you both for the original implementation and inspiration.
 
@@ -18,7 +18,7 @@ It works with a direct serial connection or with a socket-based virtual serial e
 
 Before you start, make sure you have:
 
-- a Sagemcom T210-D-R smart meter with access to the P1 port
+- a Sagemcom T210-D-r smart meter with access to the P1 port
 - a suitable cable or adapter for the P1 port
   - e.g. https://www.amazon.de/dp/B07JGKJ6SM (I used this one)
   - or this one: https://www.amazon.de/dp/B08FB741QM
@@ -99,9 +99,9 @@ The value of SERIAL_INPUT_PORT can be one of the following:
 - a socket endpoint such as socket://host:port for ser2net or similar tools
 - other pyserial-compatible URL-based serial backends, if you use them
 
-## P1 RJ11 wiring notes (Sagemcom T210-D-R)
+## P1 RJ11 wiring notes (Sagemcom T210-D-r)
 
-For the RJ11 socket on the Sagemcom T210-D-R, three pins are required:
+For the RJ11 socket on the Sagemcom T210-D-r, three pins are required:
 
 - Pin 2 = RX: must be held high (5V) to trigger data transmission from the meter
 - Pin 3 = GND

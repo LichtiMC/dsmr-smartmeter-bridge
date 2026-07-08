@@ -318,7 +318,7 @@ class SmartMeterDecryptor():
                 "identifiers": [self.slugify(self._mqtt_device_name)],
                 "name": self._mqtt_device_name,
                 "manufacturer": "Sagemcom",
-                "model": "T210-D-R",
+                "model": "T210-D-r",
             },
             "retain": True,
             "force_update": True,
