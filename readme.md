@@ -177,6 +177,4 @@ The energy values are the best candidates for the imported and exported energy m
 
 ## Further information
 
-- [DSMR Parser](https://github.com/ndokter/dsmr_parser)
-- [DSMR Reader](https://dsmr-reader.readthedocs.io/)
-- [P1 Port Specification for Energie Steiermark's electricity meters](https://www.e-netze.at/downloads-data/pdf.aspx?pdf=EN_Update%20Kundenschnittstelle%20Smart%20Meter_ID3282_WEB_RGB.pdf)
+- [P1 Port Pin-Out for Energie Steiermark's electricity meters](https://www.e-netze.at/downloads-data/pdf.aspx?pdf=EN_Update%20Kundenschnittstelle%20Smart%20Meter%20(03_2024)_WEB_RGB.pdf)
