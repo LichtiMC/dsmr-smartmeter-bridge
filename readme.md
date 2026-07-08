@@ -177,4 +177,4 @@ The energy values are the best candidates for the imported and exported energy m
 
 ## Further information
 
-- [P1 Port Pin-Out for Energie Steiermark's electricity meters](https://www.e-netze.at/downloads-data/pdf.aspx?pdf=EN_Update%20Kundenschnittstelle%20Smart%20Meter%20(03_2024)_WEB_RGB.pdf)
+- [P1 Port Pin-Out for Energie Steiermark's electricity meters](EN_Update_Kundenschnittstelle_Smart_Meter_(03_2024)_WEB_RGB.pdf)
