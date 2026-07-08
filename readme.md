@@ -99,6 +99,16 @@ The value of SERIAL_INPUT_PORT can be one of the following:
 - a socket endpoint such as socket://host:port for ser2net or similar tools
 - other pyserial-compatible URL-based serial backends, if you use them
 
+## P1 RJ11 wiring notes (Sagemcom T210-D-R)
+
+For the RJ11 socket on the Sagemcom T210-D-R, three pins are required:
+
+- Pin 2 = RX: must be held high (5V) to trigger data transmission from the meter
+- Pin 3 = GND
+- Pin 5 = TX: uses an inverted signal level, so the TTL adapter input must support inverted logic
+
+If your adapter does not support inverted RX input directly, use hardware that supports signal inversion, or invert the signal yourself (for example with an NPN transistor).
+
 ## Running as a systemd service
 
 The project includes a service file at [dsmr-smartmeter-bridge.service](dsmr-smartmeter-bridge.service). To install it on the system, copy it to the systemd directory and enable it:
