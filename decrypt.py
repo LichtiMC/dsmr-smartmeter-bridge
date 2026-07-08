@@ -9,6 +9,7 @@ from pathlib import Path
 from traceback import print_exc
 
 import serial
+import time
 
 try:
     import paho.mqtt.client as mqtt
@@ -111,6 +112,7 @@ class SmartMeterDecryptor():
         self._mqtt_discovery_prefix = "homeassistant"
         self._mqtt_base_topic = "Smartmeter"
         self._mqtt_device_name = "Smartmeter"
+        self._input_status = None
         self._empty_reads = 0
         self._max_empty_reads_before_reconnect = 10
 
@@ -164,9 +166,6 @@ class SmartMeterDecryptor():
         self._mqtt_base_topic = self._args.mqtt_base_topic or env_values.get("MQTT_BASE_TOPIC", "Smartmeter")
         self._mqtt_device_name = self._args.mqtt_device_name or env_values.get("MQTT_DEVICE_NAME", "Smartmeter")
 
-        if not self.connect():
-            sys.exit(1)
-
         self._useMQTT = self._args.mqtt_broker is not None
         if self._useMQTT:
             print("Using broker: {}".format(self._args.mqtt_broker))
@@ -178,6 +177,8 @@ class SmartMeterDecryptor():
                 if not self._mqtt_connected:
                     print("MQTT connection failed; continuing without MQTT")
                     self._useMQTT = False
+
+        self.connect()
             
         while True:
             self.process()
@@ -189,21 +190,63 @@ class SmartMeterDecryptor():
     def slugify(self, text):
         return re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
 
+    def availability_topic(self):
+        return "{}/status".format(self._mqtt_base_topic)
+
+    def input_status_topic(self):
+        return "{}/input_status".format(self._mqtt_base_topic)
+
+    def publish_availability(self, state):
+        if not self._useMQTT or self._client is None:
+            return
+        try:
+            info = self._client.publish(self.availability_topic(), state, retain=True)
+            rc = getattr(info, "rc", None)
+            if rc not in (None, mqtt.MQTT_ERR_SUCCESS):
+                print("MQTT availability publish failed rc={}".format(rc))
+        except Exception as exc:
+            print("MQTT availability publish failed: {}".format(exc))
+
+    def publish_input_status(self, state):
+        if self._input_status == state:
+            return
+        self._input_status = state
+        if not self._useMQTT or self._client is None:
+            return
+        try:
+            info = self._client.publish(self.input_status_topic(), state, retain=True)
+            rc = getattr(info, "rc", None)
+            if rc not in (None, mqtt.MQTT_ERR_SUCCESS):
+                print("MQTT input status publish failed rc={}".format(rc))
+        except Exception as exc:
+            print("MQTT input status publish failed: {}".format(exc))
+
     def _on_disconnect(self, client, userdata, rc, properties=None):
         self._mqtt_connected = False
         if rc != 0:
             print("MQTT disconnected (rc={})".format(rc))
+        self.publish_availability("offline")
+
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            self._mqtt_connected = True
+            print("MQTT connected")
+        else:
+            self._mqtt_connected = False
+            print("MQTT connect failed (rc={})".format(rc))
 
     def create_mqtt_client(self):
         if hasattr(mqtt, "CallbackAPIVersion"):
             try:
-                client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "SmartMeter")
+                client = mqtt.Client(client_id="SmartMeter", callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
             except TypeError:
-                client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "SmartMeter")
+                client = mqtt.Client(client_id="SmartMeter", callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
         else:
             client = mqtt.Client("SmartMeter")
         client.on_disconnect = self._on_disconnect
+        client.on_connect = self._on_connect
         client.reconnect_delay_set(min_delay=1, max_delay=30)
+        client.will_set(self.availability_topic(), "offline", retain=True)
         return client
 
     def connect_mqtt(self):
@@ -215,11 +258,18 @@ class SmartMeterDecryptor():
             self._client.username_pw_set(self._args.mqtt_user, self._args.mqtt_password)
             self._client.connect(self._args.mqtt_broker, self._args.mqtt_port, 10)
             self._client.loop_start()
-            self._client.publish("{}/status".format(self._mqtt_base_topic), "online", retain=True)
-            self._mqtt_connected = True
+            # Wait briefly for the client to establish the connection
+            for _ in range(10):
+                if self._mqtt_connected:
+                    break
+                time.sleep(0.1)
+            if not self._mqtt_connected:
+                raise RuntimeError("MQTT client failed to connect")
+            self.publish_availability("online")
             print("MQTT Connection successful")
         except Exception as exc:
             self._mqtt_connected = False
+            self.publish_availability("offline")
             print("MQTT connection failed: {}".format(exc))
 
     def publish_mqtt_value(self, myname, myvalue, myunit, key):
@@ -227,6 +277,12 @@ class SmartMeterDecryptor():
             if self._useMQTT and self._client is not None:
                 self.connect_mqtt()
             if not self._mqtt_connected:
+                return
+
+        if self._client is not None and not self._client.is_connected():
+            self.connect_mqtt()
+            if not self._mqtt_connected:
+                print("MQTT publish skipped for {} because client is disconnected".format(myname))
                 return
 
         topic = "{}/{}".format(self._mqtt_base_topic, myname)
@@ -240,8 +296,13 @@ class SmartMeterDecryptor():
             payload = str(myvalue)
 
         info = self._client.publish(topic, payload, retain=True)
-        if getattr(info, "rc", None) not in (None, mqtt.MQTT_ERR_SUCCESS):
-            print("MQTT publish failed for {}".format(myname))
+        rc = getattr(info, "rc", None)
+        if rc not in (None, mqtt.MQTT_ERR_SUCCESS):
+            print("MQTT publish failed for {} rc={}".format(myname, rc))
+            if rc == mqtt.MQTT_ERR_NO_CONN:
+                self._mqtt_connected = False
+                self.connect_mqtt()
+                return
 
         object_id = self.slugify(myname)
         discovery_topic = "{}/sensor/{}/config".format(self._mqtt_discovery_prefix, object_id)
@@ -252,7 +313,7 @@ class SmartMeterDecryptor():
             "name": myname,
             "unique_id": "{}_{}".format(self.slugify(self._mqtt_device_name), object_id),
             "state_topic": topic,
-            "availability_topic": "{}/status".format(self._mqtt_base_topic),
+            "availability_topic": self.availability_topic(),
             "device": {
                 "identifiers": [self.slugify(self._mqtt_device_name)],
                 "name": self._mqtt_device_name,
@@ -275,8 +336,9 @@ class SmartMeterDecryptor():
             payload_config["device_class"] = "timestamp"
 
         info = self._client.publish(discovery_topic, json.dumps(payload_config), retain=True)
-        if getattr(info, "rc", None) not in (None, mqtt.MQTT_ERR_SUCCESS):
-            print("MQTT discovery publish failed for {}".format(myname))
+        rc = getattr(info, "rc", None)
+        if rc not in (None, mqtt.MQTT_ERR_SUCCESS):
+            print("MQTT discovery publish failed for {} rc={}".format(myname, rc))
         self._mqtt_discovery_registered.add(discovery_topic)
 
     def parse_plain_telegram(self, decryption):
@@ -350,9 +412,11 @@ class SmartMeterDecryptor():
                     timeout=1,
                 )
             print("Connected to input port: {}".format(self._args.serial_input_port))
+            self.publish_input_status("online")
             return True
         except (serial.SerialException, OSError, ValueError) as err:
             print("ERROR: Could not open input port {}: {}".format(self._args.serial_input_port, err))
+            self.publish_input_status("offline")
             return False
 
     # Start processing incoming data
@@ -368,6 +432,7 @@ class SmartMeterDecryptor():
             self._empty_reads += 1
             if self._empty_reads >= self._max_empty_reads_before_reconnect:
                 print("Input connection error, reconnecting...")
+                self.publish_input_status("offline")
                 self._connection.close()
                 self._connection = None
                 self.connect()
@@ -377,6 +442,7 @@ class SmartMeterDecryptor():
             self._empty_reads += 1
             if self._empty_reads >= self._max_empty_reads_before_reconnect:
                 print("Input connection stalled, reconnecting...")
+                self.publish_input_status("offline")
                 try:
                     self._connection.close()
                 except Exception:
