@@ -115,6 +115,24 @@ The service expects the local .env file in the project directory and uses it aut
 
 If MQTT is enabled in the .env file, the script publishes Home Assistant MQTT discovery messages automatically.
 
+### Status topics and meaning
+
+The bridge publishes two different MQTT status topics:
+
+- Smartmeter/status
+  - Purpose: bridge process and MQTT connection availability
+  - online: the bridge is connected to MQTT and running
+  - offline: the bridge process stopped unexpectedly or lost MQTT availability (last will / reconnect failure)
+- Smartmeter/input_status
+  - Purpose: health of the meter input source (serial or socket input)
+  - online: input connection could be opened successfully
+  - offline: input connection failed, read errors occurred repeatedly, or reads stalled repeatedly and reconnect was triggered
+
+In short:
+
+- Smartmeter/status tells you whether the bridge itself is available in MQTT.
+- Smartmeter/input_status tells you whether meter input data can currently be read reliably.
+
 ### What should appear in Home Assistant?
 
 You should see entities under the MQTT integration, typically with names such as:
