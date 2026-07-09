@@ -113,6 +113,9 @@ class SmartMeterDecryptor():
         self._mqtt_base_topic = "Smartmeter"
         self._mqtt_device_name = "Smartmeter"
         self._input_status = None
+        self._mqtt_loop_started = False
+        self._last_mqtt_reconnect_attempt = 0.0
+        self._mqtt_reconnect_interval_seconds = 10
         self._empty_reads = 0
         self._max_empty_reads_before_reconnect = 10
 
@@ -175,8 +178,7 @@ class SmartMeterDecryptor():
             else:
                 self.connect_mqtt()
                 if not self._mqtt_connected:
-                    print("MQTT connection failed; continuing without MQTT")
-                    self._useMQTT = False
+                    print("MQTT connection failed; will keep retrying in the background")
 
         self.connect()
             
@@ -207,8 +209,8 @@ class SmartMeterDecryptor():
         except Exception as exc:
             print("MQTT availability publish failed: {}".format(exc))
 
-    def publish_input_status(self, state):
-        if self._input_status == state:
+    def publish_input_status(self, state, force=False):
+        if not force and self._input_status == state:
             return
         self._input_status = state
         if not self._useMQTT or self._client is None:
@@ -231,6 +233,9 @@ class SmartMeterDecryptor():
         if rc == 0:
             self._mqtt_connected = True
             print("MQTT connected")
+            self.publish_availability("online")
+            if self._input_status is not None:
+                self.publish_input_status(self._input_status, force=True)
         else:
             self._mqtt_connected = False
             print("MQTT connect failed (rc={})".format(rc))
@@ -251,13 +256,23 @@ class SmartMeterDecryptor():
 
     def connect_mqtt(self):
         if not self._useMQTT:
-            return
+            return False
         try:
             if self._client is None:
                 self._client = self.create_mqtt_client()
-            self._client.username_pw_set(self._args.mqtt_user, self._args.mqtt_password)
-            self._client.connect(self._args.mqtt_broker, self._args.mqtt_port, 10)
-            self._client.loop_start()
+                self._client.username_pw_set(self._args.mqtt_user, self._args.mqtt_password)
+
+            if self._client.is_connected():
+                self._mqtt_connected = True
+                return True
+
+            if self._mqtt_loop_started:
+                self._client.reconnect()
+            else:
+                self._client.connect(self._args.mqtt_broker, self._args.mqtt_port, 10)
+                self._client.loop_start()
+                self._mqtt_loop_started = True
+
             # Wait briefly for the client to establish the connection
             for _ in range(10):
                 if self._mqtt_connected:
@@ -265,25 +280,32 @@ class SmartMeterDecryptor():
                 time.sleep(0.1)
             if not self._mqtt_connected:
                 raise RuntimeError("MQTT client failed to connect")
-            self.publish_availability("online")
             print("MQTT Connection successful")
+            return True
         except Exception as exc:
             self._mqtt_connected = False
             self.publish_availability("offline")
             print("MQTT connection failed: {}".format(exc))
+            return False
+
+    def ensure_mqtt_connection(self, force=False):
+        if not self._useMQTT or mqtt is None:
+            return False
+
+        if self._client is not None and self._client.is_connected() and self._mqtt_connected:
+            return True
+
+        now = time.time()
+        if not force and now - self._last_mqtt_reconnect_attempt < self._mqtt_reconnect_interval_seconds:
+            return False
+
+        self._last_mqtt_reconnect_attempt = now
+        return self.connect_mqtt()
 
     def publish_mqtt_value(self, myname, myvalue, myunit, key):
-        if not self._useMQTT or not self._client or not self._mqtt_connected:
-            if self._useMQTT and self._client is not None:
-                self.connect_mqtt()
-            if not self._mqtt_connected:
-                return
-
-        if self._client is not None and not self._client.is_connected():
-            self.connect_mqtt()
-            if not self._mqtt_connected:
-                print("MQTT publish skipped for {} because client is disconnected".format(myname))
-                return
+        if not self.ensure_mqtt_connection(force=True):
+            print("MQTT publish skipped for {} because client is disconnected".format(myname))
+            return
 
         topic = "{}/{}".format(self._mqtt_base_topic, myname)
         if isinstance(myvalue, int):
@@ -421,6 +443,8 @@ class SmartMeterDecryptor():
 
     # Start processing incoming data
     def process(self):
+        self.ensure_mqtt_connection()
+
         if self._connection is None:
             self.connect()
             if self._connection is None:
